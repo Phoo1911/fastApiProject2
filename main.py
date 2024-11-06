@@ -1,34 +1,43 @@
-from fastapi import FastAPI, Form, Request, RedirectResponse
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Depends, Form, HTTPException, Request, RedirectResponse
+from sqlalchemy.orm import Session
 from fastapi.templating import Jinja2Templates
+from database import SessionLocal
+from crud import get_transactions, add_transaction, delete_transaction
 
 app = FastAPI()
+
+# Initialize Jinja2 templates
 templates = Jinja2Templates(directory="templates")
 
-# Sample data structure to store transactions
-transactions = []
+# Dependency to get the database session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+# GET route to display transactions and render the template
+@app.get("/")
+async def read_transactions(request: Request, db: Session = Depends(get_db)):
+    transactions = get_transactions(db)
     return templates.TemplateResponse("index.html", {"request": request, "transactions": transactions})
 
-@app.post("/add_transaction")
-async def add_transaction(
-    request: Request,
-    transaction_amount: float = Form(...),
-    transaction_type: str = Form(...),
-    transaction_description: str = Form(...)
+# POST route to add a new transaction
+@app.post("/transactions/add")
+async def create_transaction(
+    amount: float = Form(...),
+    type: str = Form(...),
+    description: str = Form(...),
+    db: Session = Depends(get_db)
 ):
-    transaction = {
-        "amount": transaction_amount,
-        "type": transaction_type,
-        "description": transaction_description
-    }
-    transactions.append(transaction)
+    add_transaction(db, type=type, amount=amount, description=description)
     return RedirectResponse(url="/", status_code=303)
 
-@app.post("/delete_transaction/{transaction_id}")
-async def delete_transaction(transaction_id: int):
-    if 0 <= transaction_id < len(transactions):
-        transactions.pop(transaction_id)
+# POST route to delete a transaction
+@app.post("/transactions/delete/{transaction_id}")
+async def remove_transaction(transaction_id: int, db: Session = Depends(get_db)):
+    transaction = delete_transaction(db, transaction_id)
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
     return RedirectResponse(url="/", status_code=303)
